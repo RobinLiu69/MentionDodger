@@ -1,0 +1,4 @@
+discord >= 2.3.2
+pyyaml >= 6.0.3
+aiosqlite >= 0.22.1
+dotenv >= 0.9.9

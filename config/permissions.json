@@ -1,0 +1,12 @@
+{
+  "admin_roles": ["Admin", "Moderator"],
+  "commands": {
+    "/reset": {
+      "allowed_roles": ["Admin"],
+      "allowed_users": []
+    },
+    "/config": {
+      "allowed_roles": ["Admin", "Moderator"]
+    }
+  }
+}
