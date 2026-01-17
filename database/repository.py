@@ -3,9 +3,9 @@
 """
 import aiosqlite
 from typing import List, Optional
-from database.models import MentionRecord, GhostStats
+from database.models import MentionRecord, GhostStats, PlayerTracking
 from datetime import datetime
-import hashlib # 之後新增 敏感資料進行 SHA-256
+import hashlib
 
 class GhostRepository:
     def __init__(self, db_path: str):
@@ -43,6 +43,18 @@ class GhostRepository:
                 )
             """)
             
+            # 新增玩家追蹤表
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS player_tracking (
+                    user_id INTEGER NOT NULL,
+                    guild_id INTEGER NOT NULL,
+                    is_tracked BOOLEAN DEFAULT TRUE,
+                    joined_at TIMESTAMP NOT NULL,
+                    left_at TIMESTAMP,
+                    PRIMARY KEY (user_id, guild_id)
+                )
+            """)
+            
             # 建立索引以提升查詢效能
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_mentions_pending 
@@ -52,6 +64,11 @@ class GhostRepository:
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_ghost_stats_guild 
                 ON ghost_stats(guild_id, ghost_count DESC)
+            """)
+            
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_player_tracking_guild
+                ON player_tracking(guild_id, is_tracked)
             """)
             
             await db.commit()
@@ -338,6 +355,123 @@ class GhostRepository:
             rows = await cursor.fetchall()
             return [self._row_to_mention_record(row) for row in rows]
     
+    # ==================== 玩家追蹤名單操作 ====================
+    
+    async def add_player(self, user_id: int, guild_id: int) -> bool:
+        """
+        將玩家加入追蹤名單
+        返回: True = 成功加入, False = 已在名單中
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            
+            # 檢查是否已存在
+            cursor = await db.execute("""
+                SELECT is_tracked FROM player_tracking
+                WHERE user_id = ? AND guild_id = ?
+            """, (user_id, guild_id))
+            
+            row = await cursor.fetchone()
+            
+            if row:
+                # 已存在
+                if row["is_tracked"]:
+                    return False
+                else:
+                    # 曾經退出，現在重新加入
+                    await db.execute("""
+                        UPDATE player_tracking
+                        SET is_tracked = TRUE,
+                            joined_at = ?,
+                            left_at = NULL
+                        WHERE user_id = ? AND guild_id = ?
+                    """, (datetime.now().isoformat(), user_id, guild_id))
+            else:
+                # 新玩家
+                await db.execute("""
+                    INSERT INTO player_tracking (user_id, guild_id, is_tracked, joined_at)
+                    VALUES (?, ?, TRUE, ?)
+                """, (user_id, guild_id, datetime.now().isoformat()))
+            
+            await db.commit()
+            return True
+    
+    async def remove_player(self, user_id: int, guild_id: int) -> bool:
+        """
+        將玩家移出追蹤名單
+        返回: True = 成功移出, False = 不在名單中
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            
+            # 檢查是否存在且正在追蹤
+            cursor = await db.execute("""
+                SELECT is_tracked FROM player_tracking
+                WHERE user_id = ? AND guild_id = ?
+            """, (user_id, guild_id))
+            
+            row = await cursor.fetchone()
+            
+            if not row or not row["is_tracked"]:
+                return False  # 不在追蹤中
+            
+            # 更新為非追蹤狀態
+            await db.execute("""
+                UPDATE player_tracking
+                SET is_tracked = FALSE,
+                    left_at = ?
+                WHERE user_id = ? AND guild_id = ?
+            """, (datetime.now().isoformat(), user_id, guild_id))
+            
+            await db.commit()
+            return True
+    
+    async def is_player_tracked(self, user_id: int, guild_id: int) -> bool:
+        """
+        檢查玩家是否在追蹤名單中
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT is_tracked FROM player_tracking
+                WHERE user_id = ? AND guild_id = ?
+            """, (user_id, guild_id))
+            
+            row = await cursor.fetchone()
+            return bool(row and row["is_tracked"])
+    
+    async def get_tracked_players(self, guild_id: int) -> List[PlayerTracking]:
+        """
+        取得伺服器中所有被追蹤的玩家
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT * FROM player_tracking
+                WHERE guild_id = ? AND is_tracked = TRUE
+                ORDER BY joined_at DESC
+            """, (guild_id,))
+            
+            rows = await cursor.fetchall()
+            return [self._row_to_player_tracking(row) for row in rows]
+    
+    async def get_player_info(self, user_id: int, guild_id: int) -> Optional[PlayerTracking]:
+        """
+        取得玩家追蹤資訊
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT * FROM player_tracking
+                WHERE user_id = ? AND guild_id = ?
+            """, (user_id, guild_id))
+            
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            
+            return self._row_to_player_tracking(row)
+    
     # ==================== 內部輔助方法 ====================
     
     @staticmethod
@@ -372,4 +506,15 @@ class GhostRepository:
             last_updated=datetime.fromisoformat(row["last_updated"]) if row["last_updated"] else None
         )
     
-        
+    @staticmethod
+    def _row_to_player_tracking(row) -> PlayerTracking:
+        """
+        將資料庫 Row 轉換為 PlayerTracking
+        """
+        return PlayerTracking(
+            user_id=row["user_id"],
+            guild_id=row["guild_id"],
+            is_tracked=bool(row["is_tracked"]),
+            joined_at=datetime.fromisoformat(row["joined_at"]) if row["joined_at"] else None,
+            left_at=datetime.fromisoformat(row["left_at"]) if row["left_at"] else None
+        )

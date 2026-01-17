@@ -1,9 +1,6 @@
-token: "DISCORD_BOT_TOKEN"
-
-# 詐欺判定規則
 ghost_rules:
   need_permission2play: true
-  response_timeout: 300      # 秒
+  response_timeout: 3      # 秒
   valid_response_min_length: 1
   ignore_bot_mentions: true   # 是否忽略 bot 間的 mention
 
@@ -17,7 +14,11 @@ commands:
     # display_default_limit: 10
     # disaply_max_limit: 50
   config:
-    enable: false
+    enable: true
+  join:
+    enable: true
+  quit:
+    enable: true
 
 events:
   on_ready:

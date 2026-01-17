@@ -32,3 +32,14 @@ class GhostStats:
     mention_count: int = 0
     response_rate: float = 0.0
     last_updated: datetime = None
+
+@dataclass
+class PlayerTracking:
+    """
+    玩家追蹤名單
+    """
+    user_id: int
+    guild_id: int
+    is_tracked: bool = True
+    joined_at: datetime = None
+    left_at: Optional[datetime] = None

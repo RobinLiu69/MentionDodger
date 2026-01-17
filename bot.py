@@ -48,7 +48,7 @@ class GhostBot(commands.Bot):
         Bot 啟動前的異步初始化鉤子
         在這裡載入 Cogs 和連接資料庫
         """
-        print(f"--- 初始化 GhostBot ---")
+        logger.info(f"--- 初始化 GhostBot ---")
         
         # 1. 初始化資料庫
         self.repository = GhostRepository(self.config["database"]["path"])
@@ -86,7 +86,7 @@ class GhostBot(commands.Bot):
         await self.tree.sync(guild=None)
         logger.info("Slash Commands 已同步")
 
-        print(f"--- 初始化完成，等待連線 ---")
+        logger.info(f"--- 初始化完成，等待連線 ---")
 
     async def on_ready(self) -> None:
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     bot = GhostBot()
 
     load_dotenv()
-    token = os.getenv(bot.config.get("token"))
+    token = os.getenv("DISCORD_BOT_TOKEN")
 
     if not token:
         logger.error("Config 中未找到 Token，請檢查設定檔。")
